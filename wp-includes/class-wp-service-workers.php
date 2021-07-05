@@ -1,9 +1,8 @@
 <?php
 /**
- * Dependencies API: WP_Service_Workers class
+ * WP_Service_Workers class.
  *
- * @since 0.1
- *
+ * @since 0.2
  * @package PWA
  */
 
@@ -14,7 +13,14 @@
  *
  * @see WP_Dependencies
  */
-class WP_Service_Workers extends WP_Scripts {
+class WP_Service_Workers implements WP_Service_Worker_Registry_Aware {
+
+	/**
+	 * Param for service workers.
+	 *
+	 * @var string
+	 */
+	const QUERY_VAR = 'wp_service_worker';
 
 	/**
 	 * Scope for front.
@@ -38,177 +44,120 @@ class WP_Service_Workers extends WP_Scripts {
 	const SCOPE_ALL = 3;
 
 	/**
-	 * Param for service workers.
+	 * Service worker scripts registry.
 	 *
-	 * @var string
+	 * @var WP_Service_Worker_Scripts
 	 */
-	public $query_var = 'wp_service_worker';
+	protected $scripts;
 
 	/**
-	 * Output for service worker scope script.
+	 * Constructor.
 	 *
-	 * @var string
+	 * Instantiates the service worker scripts registry.
 	 */
-	public $output = '';
+	public function __construct() {
+		$components = array(
+			'configuration'      => new WP_Service_Worker_Configuration_Component(),
+			'navigation_routing' => new WP_Service_Worker_Navigation_Routing_Component(),
+			'precaching_routes'  => new WP_Service_Worker_Precaching_Routes_Component(),
+			'caching_routes'     => new WP_Service_Worker_Caching_Routes_Component(),
+		);
 
-	/**
-	 * Initialize the class.
-	 */
-	public function init() {
-		/**
-		 * Fires when the WP_Service_Workers instance is initialized.
-		 *
-		 * @param WP_Service_Workers $this WP_Service_Workers instance (passed by reference).
-		 */
-		do_action_ref_array( 'wp_default_service_workers', array( &$this ) );
+		$this->scripts = new WP_Service_Worker_Scripts( $components );
 	}
 
 	/**
-	 * Register service worker.
+	 * Gets the service worker scripts registry.
 	 *
-	 * Registers service worker if no item of that name already exists.
-	 *
-	 * @param string          $handle Name of the item. Should be unique.
-	 * @param string|callable $src    URL to the source in the WordPress install, or a callback that returns the JS to include in the service worker.
-	 * @param array           $deps   Optional. An array of registered item handles this item depends on. Default empty array.
-	 * @param int             $scope  Scope for which service worker the script will be part of. Can be WP_Service_Workers::SCOPE_FRONT, WP_Service_Workers::SCOPE_ADMIN, or WP_Service_Workers::SCOPE_ALL. Default to WP_Service_Workers::SCOPE_ALL.
-	 * @return bool Whether the item has been registered. True on success, false on failure.
+	 * @return WP_Service_Worker_Scripts Scripts registry instance.
 	 */
-	public function register( $handle, $src, $deps = array(), $scope = self::SCOPE_ALL ) {
-		if ( ! in_array( $scope, array( self::SCOPE_FRONT, self::SCOPE_ADMIN, self::SCOPE_ALL ), true ) ) {
-			_doing_it_wrong( __METHOD__, esc_html__( 'Scope must be either WP_Service_Workers::SCOPE_ALL, WP_Service_Workers::SCOPE_FRONT, or WP_Service_Workers::SCOPE_ADMIN.', 'pwa' ), '0.1' );
-			$scope = self::SCOPE_ALL;
-		}
+	public function get_registry() {
+		return $this->scripts;
+	}
 
-		return parent::add( $handle, $src, $deps, false, compact( 'scope' ) );
+	/**
+	 * Get the current scope for the service worker request.
+	 *
+	 * @todo We don't really need this. A simple call to is_admin() is all that is required.
+	 * @return int Scope. Either SCOPE_FRONT or SCOPE_ADMIN.
+	 */
+	public function get_current_scope() {
+		return is_admin() ? self::SCOPE_ADMIN : self::SCOPE_FRONT;
 	}
 
 	/**
 	 * Get service worker logic for scope.
 	 *
 	 * @see wp_service_worker_loaded()
-	 * @param int $scope Scope of the Service Worker.
 	 */
-	public function serve_request( $scope ) {
-		@header( 'Content-Type: text/javascript; charset=utf-8' ); // phpcs:ignore Generic.PHP.NoSilencedErrors.Discouraged
+	public function serve_request() {
+		/*
+		 * Clear the currently-authenticated user to ensure that the service worker doesn't vary between users.
+		 * Note that clearing the authenticated user in this way is in keeping with REST API requests wherein the
+		 * WP_REST_Server::serve_request() method calls WP_REST_Server::check_authentication() which in turn applies
+		 * the rest_authentication_errors filter which runs rest_cookie_check_errors() which is then responsible for
+		 * calling wp_set_current_user( 0 ) if it was previously-determined a user was logged-in with the required
+		 * nonce cookie set when wp_validate_auth_cookie() triggers one of the auth_cookie_* actions.
+		 */
+		wp_set_current_user( 0 );
 
-		if ( self::SCOPE_FRONT !== $scope && self::SCOPE_ADMIN !== $scope ) {
-			status_header( 400 );
-			echo '/* invalid_scope_requested */';
-			return;
+		// See wp_debug_mode() for how this is also done for REST API responses.
+		@ini_set( 'display_errors', 0 ); // phpcs:ignore Generic.PHP.NoSilencedErrors.Discouraged, WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.PHP.DiscouragedPHPFunctions.runtime_configuration_ini_set, WordPress.PHP.IniSet.display_errors_Blacklisted
+
+		/*
+		 * Per Workbox <https://developers.google.com/web/tools/workbox/guides/service-worker-checklist#cache-control_of_your_service_worker_file>:
+		 * "Generally, most developers will want to set the Cache-Control header to no-cache,
+		 * forcing browsers to always check the server for a new service worker file."
+		 * Nevertheless, an ETag header is also sent with support for Conditional Requests
+		 * to save on needlessly re-downloading the same service worker with each page load.
+		 */
+		@header( 'Cache-Control: no-cache' ); // phpcs:ignore Generic.PHP.NoSilencedErrors.Discouraged, WordPress.PHP.NoSilencedErrors.Discouraged
+
+		@header( 'Content-Type: text/javascript; charset=utf-8' ); // phpcs:ignore Generic.PHP.NoSilencedErrors.Discouraged, WordPress.PHP.NoSilencedErrors.Discouraged
+
+		if ( ! is_admin() ) {
+			wp_enqueue_scripts();
+
+			/**
+			 * Fires before serving the frontend service worker, when its scripts should be registered, caching routes established, and assets precached.
+			 *
+			 * @since 0.2
+			 *
+			 * @param WP_Service_Worker_Scripts $scripts Instance to register service worker behavior with.
+			 */
+			do_action( 'wp_front_service_worker', $this->scripts );
+		} else {
+			$hook_name = 'service-worker';
+			set_current_screen( $hook_name );
+
+			/** This action is documented in wp-admin/admin-header.php */
+			do_action( 'admin_enqueue_scripts', $hook_name );
+
+			/**
+			 * Fires before serving the wp-admin service worker, when its scripts should be registered, caching routes established, and assets precached.
+			 *
+			 * @since 0.2
+			 *
+			 * @param WP_Service_Worker_Scripts $scripts Instance to register service worker behavior with.
+			 */
+			do_action( 'wp_admin_service_worker', $this->scripts );
 		}
 
-		// @todo If $scope is admin should this admin_enqueue_scripts, and if front should it wp_enqueue_scripts?
-		$scope_items = array();
+		ob_start();
+		printf( "/* PWA v%s-%s */\n\n", esc_html( PWA_VERSION ), is_admin() ? 'admin' : 'front' );
+		$this->scripts->do_items( array_keys( $this->scripts->registered ) );
+		$output = ob_get_clean();
 
-		// Get handles from the relevant scope only.
-		foreach ( $this->registered as $handle => $item ) {
-			if ( $item->args['scope'] & $scope ) { // Yes, Bitwise AND intended. SCOPE_ALL & SCOPE_FRONT == true. SCOPE_ADMIN & SCOPE_FRONT == false.
-				$scope_items[] = $handle;
-			}
-		}
+		$file_hash = md5( $output );
+		$etag      = sprintf( '"%s"', $file_hash );
+		@header( "ETag: $etag" ); // phpcs:ignore Generic.PHP.NoSilencedErrors.Discouraged, WordPress.PHP.NoSilencedErrors.Discouraged
 
-		$this->output = '';
-		$this->do_items( $scope_items );
-
-		$file_hash = md5( $this->output );
-		@header( "Etag: $file_hash" ); // phpcs:ignore Generic.PHP.NoSilencedErrors.Discouraged
-
-		$etag_header = isset( $_SERVER['HTTP_IF_NONE_MATCH'] ) ? trim( $_SERVER['HTTP_IF_NONE_MATCH'] ) : false;
-		if ( $file_hash === $etag_header ) {
+		$if_none_match = isset( $_SERVER['HTTP_IF_NONE_MATCH'] ) ? trim( wp_unslash( $_SERVER['HTTP_IF_NONE_MATCH'] ) ) : false;
+		if ( $if_none_match === $etag ) {
 			status_header( 304 );
 			return;
 		}
 
-		echo $this->output; // phpcs:ignore WordPress.XSS.EscapeOutput, WordPress.Security.EscapeOutput
-	}
-
-	/**
-	 * Process one registered script.
-	 *
-	 * @param string $handle Handle.
-	 * @param bool   $group Group. Unused.
-	 * @return void
-	 */
-	public function do_item( $handle, $group = false ) {
-		$registered = $this->registered[ $handle ];
-		$invalid    = false;
-
-		if ( is_callable( $registered->src ) ) {
-			$this->output .= sprintf( "\n/* Source %s: */\n", $handle );
-			$this->output .= call_user_func( $registered->src ) . "\n";
-		} elseif ( is_string( $registered->src ) ) {
-			$validated_path = $this->get_validated_file_path( $registered->src );
-			if ( is_wp_error( $validated_path ) ) {
-				$invalid = true;
-			} else {
-				/* translators: %s is file URL */
-				$this->output .= sprintf( "\n/* Source %s <%s>: */\n", $handle, $registered->src );
-				$this->output .= @file_get_contents( $validated_path ) . "\n"; // phpcs:ignore Generic.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents, WordPress.WP.AlternativeFunctions.file_system_read_file_get_contents
-			}
-		} else {
-			$invalid = true;
-		}
-
-		if ( $invalid ) {
-			/* translators: %s is script handle */
-			$error = sprintf( __( 'Service worker src is invalid for handle "%s".', 'pwa' ), $handle );
-			@_doing_it_wrong( 'WP_Service_Workers::register', esc_html( $error ), '0.1' ); // phpcs:ignore Generic.PHP.NoSilencedErrors.Discouraged -- We want the error in the PHP log, but not in the JS output.
-			$this->output .= sprintf( "console.warn( %s );\n", wp_json_encode( $error ) );
-		}
-	}
-
-	/**
-	 * Remove URL scheme.
-	 *
-	 * @param string $schemed_url URL.
-	 * @return string URL.
-	 */
-	protected function remove_url_scheme( $schemed_url ) {
-		return preg_replace( '#^\w+:(?=//)#', '', $schemed_url );
-	}
-
-	/**
-	 * Get validated path to file.
-	 *
-	 * @param string $url Relative path.
-	 * @return null|string|WP_Error
-	 */
-	protected function get_validated_file_path( $url ) {
-		if ( ! is_string( $url ) ) {
-			return new WP_Error( 'incorrect_path_format', esc_html__( 'URL has to be a string', 'pwa' ) );
-		}
-
-		$needs_base_url = ! preg_match( '|^(https?:)?//|', $url );
-		$base_url       = site_url();
-
-		if ( $needs_base_url ) {
-			$url = $base_url . $url;
-		}
-
-		// Strip URL scheme, query, and fragment.
-		$url = $this->remove_url_scheme( preg_replace( ':[\?#].*$:', '', $url ) );
-
-		$content_url  = $this->remove_url_scheme( content_url( '/' ) );
-		$allowed_host = wp_parse_url( $content_url, PHP_URL_HOST );
-
-		$url_host = wp_parse_url( $url, PHP_URL_HOST );
-
-		if ( $allowed_host !== $url_host ) {
-			/* translators: %s is file URL */
-			return new WP_Error( 'external_file_url', sprintf( __( 'URL is located on an external domain: %s.', 'pwa' ), $url_host ) );
-		}
-
-		$file_path = null;
-		if ( 0 === strpos( $url, $content_url ) ) {
-			$file_path = WP_CONTENT_DIR . substr( $url, strlen( $content_url ) - 1 );
-		}
-
-		if ( ! $file_path || false !== strpos( '../', $file_path ) || 0 !== validate_file( $file_path ) || ! file_exists( $file_path ) ) {
-			/* translators: %s is file URL */
-			return new WP_Error( 'file_path_not_found', sprintf( __( 'Unable to locate filesystem path for %s.', 'pwa' ), $url ) );
-		}
-
-		return $file_path;
+		echo $output; // phpcs:ignore WordPress.XSS.EscapeOutput, WordPress.Security.EscapeOutput
 	}
 }

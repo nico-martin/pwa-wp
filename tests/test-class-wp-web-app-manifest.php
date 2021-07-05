@@ -36,7 +36,7 @@ class Test_WP_Web_App_Manifest extends WP_UnitTestCase {
 	 *
 	 * @var string
 	 */
-	const EXPECTED_ROUTE = '/app/v1/web-manifest';
+	const EXPECTED_ROUTE = '/wp/v2/web-app-manifest';
 
 	/**
 	 * Image mime_type.
@@ -130,22 +130,32 @@ class Test_WP_Web_App_Manifest extends WP_UnitTestCase {
 	 */
 	public function test_get_manifest() {
 		$this->mock_site_icon();
+		$blogname = 'PWA & Test "First" and \'second\' and “third”';
+		update_option( 'blogname', $blogname );
 		$actual_manifest = $this->instance->get_manifest();
 
-		preg_match( '/^.{0,12}(?= |$)/', get_bloginfo( 'name' ), $short_name_matches );
+		// Verify that there are now entities.
+		$this->assertEquals( 'PWA &amp; Test &quot;First&quot; and &#039;second&#039; and “third”', get_option( 'blogname' ) );
+
 		$expected_manifest = array(
 			'background_color' => WP_Web_App_Manifest::FALLBACK_THEME_COLOR,
 			'description'      => get_bloginfo( 'description' ),
 			'display'          => 'minimal-ui',
-			'name'             => get_bloginfo( 'name' ),
-			'short_name'       => $short_name_matches[0],
+			'name'             => $blogname, // No HTML entities should be in the manifest.
 			'lang'             => get_bloginfo( 'language' ),
 			'dir'              => is_rtl() ? 'rtl' : 'ltr',
-			'start_url'        => get_home_url(),
+			'start_url'        => home_url( '/' ),
 			'theme_color'      => WP_Web_App_Manifest::FALLBACK_THEME_COLOR,
 			'icons'            => $this->instance->get_icons(),
 		);
 		$this->assertEquals( $expected_manifest, $actual_manifest );
+
+		// Check that long names do not automatically copy to short name.
+		$blogname = str_repeat( 'x', 13 );
+		update_option( 'blogname', $blogname );
+		$actual_manifest = $this->instance->get_manifest();
+		$this->assertEquals( $blogname, $actual_manifest['name'] );
+		$this->assertArrayNotHasKey( 'short_name', $actual_manifest );
 
 		// Test that the filter at the end of the method overrides the value.
 		add_filter( 'web_app_manifest', array( $this, 'mock_manifest' ) );
@@ -198,7 +208,7 @@ class Test_WP_Web_App_Manifest extends WP_UnitTestCase {
 	public function test_get_icons() {
 
 		// There's no site icon yet, so this should return null.
-		$this->assertEquals( null, $this->instance->get_icons() );
+		$this->assertEquals( array(), $this->instance->get_icons() );
 
 		$this->mock_site_icon();
 		$expected_icons = array();
@@ -236,10 +246,12 @@ class Test_WP_Web_App_Manifest extends WP_UnitTestCase {
 	 * Creates a mock site icon, and stores the expected image URL in a property.
 	 */
 	public function mock_site_icon() {
-		$mock_site_icon_id = $this->factory()->attachment->create_object( array(
-			'file'           => 'foo/site-icon.jpeg',
-			'post_mime_type' => self::MIME_TYPE,
-		) );
+		$mock_site_icon_id = $this->factory()->attachment->create_object(
+			array(
+				'file'           => 'foo/site-icon.jpeg',
+				'post_mime_type' => self::MIME_TYPE,
+			)
+		);
 		update_option( 'site_icon', $mock_site_icon_id );
 
 		$attachment_image                 = wp_get_attachment_image_src( $mock_site_icon_id, 'full' );

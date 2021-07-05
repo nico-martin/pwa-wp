@@ -1,1 +1,8 @@
 ASSETS_DIR=wp-assets
+DEV_LIB_SKIP=$DEV_LIB_SKIP,jshint
+PROJECT_SLUG=pwa
+SKIP_ECHO_PATHS_SCOPE=1
+if [[ ! -z $TRAVIS ]]; then
+	CHECK_SCOPE=all
+fi
+CHECK_SCOPE=all

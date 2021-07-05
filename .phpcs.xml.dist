@@ -11,6 +11,7 @@
 		https://github.com/squizlabs/PHP_CodeSniffer/wiki/Advanced-Usage#ignoring-files-and-folders -->
 	<exclude-pattern>./node_modules/</exclude-pattern>
 	<exclude-pattern>./vendor/</exclude-pattern>
+	<exclude-pattern>./build/</exclude-pattern>
 
 	<!-- How to scan -->
 	<arg value="sp"/> <!-- Show sniff and progress -->
@@ -24,9 +25,16 @@
 	<rule ref="PHPCompatibilityWP">
 		<exclude-pattern>bin/*</exclude-pattern>
 	</rule>
+
+	<rule ref="WordPress.NamingConventions.ValidVariableName">
+		<properties>
+			<property name="customPropertiesWhitelist" value="childNodes,tagName,textContent,parentNode,nodeType,nodeName,nextSibling,firstChild,lastChild,nodeValue,DEFAULT_ARGS,documentElement,removeChild,ownerDocument,DEFAULT_WIDTH,DEFAULT_HEIGHT" />
+		</properties>
+	</rule>
+
 	<!-- For help in understanding this testVersion:
 		https://github.com/PHPCompatibility/PHPCompatibility#sniffing-your-code-for-compatibility-with-specific-php-versions -->
-	<config name="testVersion" value="5.2-"/>
+	<config name="testVersion" value="5.6-"/>
 
 	<!-- Rules: WordPress Coding Standards - see
 			https://github.com/WordPress-Coding-Standards/WordPress-Coding-Standards -->
@@ -36,7 +44,7 @@
 
 	<!-- For help in understanding these custom sniff properties:
 			https://github.com/WordPress-Coding-Standards/WordPress-Coding-Standards/wiki/Customizable-sniff-properties -->
-	<config name="minimum_supported_wp_version" value="4.9"/>
+	<config name="minimum_supported_wp_version" value="5.1"/>
 
 	<rule ref="WordPress.WP.I18n">
 		<properties>
@@ -49,6 +57,9 @@
 
 	<rule ref="WordPress.Files.FileName.InvalidClassFileName">
 		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+	<rule ref="WordPress.Files.FileName.InvalidTemplateTagFileName">
+		<exclude-pattern>wp-includes/template.php</exclude-pattern>
 	</rule>
 
 </ruleset>

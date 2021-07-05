@@ -1,0 +1,15 @@
+{
+	"root": true,
+  "extends": [ "plugin:@wordpress/eslint-plugin/recommended" ],
+	"env": {
+		"browser": true,
+		"es6": true
+	},
+  "globals": {
+    "wp": "writable",
+    "FetchEvent": "readonly"
+  },
+	"parserOptions": {
+		"ecmaVersion": 2018
+	}
+}

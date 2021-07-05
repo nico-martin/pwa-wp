@@ -1,30 +1,34 @@
 {
  "name": "pwa-wp",
  "title": "PWA feature plugin for WordPress Core",
- "homepage": "https://github.com/xwp/pwa-wp",
+ "homepage": "https://github.com/GoogleChromeLabs/pwa-wp",
  "repository": {
   "type": "git",
-  "url": "https://github.com/xwp/pwa-wp.git"
+  "url": "https://github.com/GoogleChromeLabs/pwa-wp.git"
  },
- "version": "0.1.0",
- "license": "GPL-2.0+",
+ "license": "GPL-2.0-or-later",
  "private": true,
  "devDependencies": {
-  "eslint": "^5.1.0",
-  "eslint-config-wordpress": "^2.0.0",
-  "grunt": "^1.0.3",
-  "grunt-contrib-clean": "^1.1.0",
-  "grunt-contrib-copy": "^1.0.0",
-  "grunt-shell": "^2.1.0",
-  "grunt-wp-deploy": "^1.3.0",
-  "husky": "^0.14.3",
-  "wp-dev-lib": "github:xwp/wp-dev-lib"
+  "@wordpress/eslint-plugin": "7.0.0",
+  "eslint": "6.8.0",
+  "grunt": "1.1.0",
+  "grunt-contrib-clean": "2.0.0",
+  "grunt-contrib-copy": "1.0.0",
+  "grunt-shell": "3.0.1",
+  "grunt-wp-deploy": "2.0.0",
+  "npm-run-all": "4.1.5",
+  "prettier": "2.0.5",
+  "workbox-cli": "5.1.3"
  },
  "scripts": {
-  "install": "composer install",
-  "precommit": "./node_modules/wp-dev-lib/pre-commit",
-  "generate-readme": "./node_modules/wp-dev-lib/generate-markdown-readme",
+  "generate-readme": "./vendor/xwp/wp-dev-lib/scripts/generate-markdown-readme && sed -i.bak 's/travis-ci\\.org/travis-ci.com/g' readme.md && rm readme.md.bak",
   "build": "grunt build; grunt create-build-zip",
-  "deploy": "grunt deploy"
- }
+  "deploy": "grunt deploy",
+  "lint": "npm-run-all --parallel lint:*",
+  "lint:js": "eslint .",
+  "lint:php": "vendor/bin/phpcs",
+  "test": "npm-run-all --parallel test:*",
+  "test:php": "phpunit"
+ },
+ "dependencies": {}
 }
